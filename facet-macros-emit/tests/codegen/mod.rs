@@ -1082,6 +1082,17 @@ fn struct_facet_transparent() {
 }
 
 #[test]
+fn struct_facet_transparent_const_gen() {
+    insta::assert_snapshot!(expand(
+        r#"
+        #[derive(Facet)]
+        #[facet(transparent)]
+        struct Wrapper<const C: usize>(u32);
+        "#
+    ));
+}
+
+#[test]
 fn enum_with_macro_discriminants() {
     insta::assert_snapshot!(expand(
         r#"
