@@ -5,6 +5,7 @@ mod list_like;
 mod map;
 mod option;
 mod pointer;
+mod proxy;
 mod reference;
 mod set;
 mod struct_;

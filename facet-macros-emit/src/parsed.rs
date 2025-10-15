@@ -50,6 +50,10 @@ pub enum PFacetAttr {
     /// `#[facet(child)]` — marks a field as child node in a hierarchy
     Child,
 
+    /// Valid in field
+    /// `#[facet(proxy(ty))]` — use the given type as a proxy shape for the field type
+    Proxy { ty: TokenStream },
+
     /// Valid in container
     /// `#[facet(invariants = "Self::invariants_func")]` — returns a bool, is called
     /// when doing `Partial::build`
@@ -107,7 +111,10 @@ impl PFacetAttr {
                 FacetInner::Flatten(_) => dest.push(PFacetAttr::Flatten),
                 FacetInner::Child(_) => dest.push(PFacetAttr::Child),
                 FacetInner::Transparent(_) => dest.push(PFacetAttr::Transparent),
-
+                FacetInner::Proxy(from) => {
+                    let ty = from.inner.content.to_token_stream();
+                    dest.push(PFacetAttr::Proxy { ty })
+                }
                 FacetInner::Invariants(invariant) => {
                     let expr = invariant.expr.to_token_stream();
                     dest.push(PFacetAttr::Invariants { expr });

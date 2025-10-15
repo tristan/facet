@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use facet_core::{Field, FieldFlags};
+use facet_core::{Field, FieldFlags, GenericPtr};
 
 use crate::Peek;
 use alloc::{vec, vec::Vec};
@@ -19,6 +19,7 @@ pub trait HasFields<'mem, 'facet> {
     fn fields_for_serialize(&self) -> FieldsForSerializeIter<'mem, 'facet> {
         FieldsForSerializeIter {
             stack: vec![self.fields()],
+            to_drop: vec![],
         }
     }
 }
@@ -154,6 +155,10 @@ impl ExactSizeIterator for FieldIter<'_, '_> {}
 /// An iterator over the fields of a struct or enum that should be serialized. See [`HasFields::fields_for_serialize`]
 pub struct FieldsForSerializeIter<'mem, 'facet> {
     stack: Vec<FieldIter<'mem, 'facet>>,
+    // used to keep track of fields that have owned data, so it can be dropped
+    // TODO: this is certainly a bad idea: the peek value could be used after the iterator has been dropped
+    // e.g. if doing something like fields().collect()
+    to_drop: Vec<(Field, GenericPtr<'mem>)>,
 }
 
 impl<'mem, 'facet> Iterator for FieldsForSerializeIter<'mem, 'facet> {
@@ -167,10 +172,15 @@ impl<'mem, 'facet> Iterator for FieldsForSerializeIter<'mem, 'facet> {
             };
             self.stack.push(fields);
 
-            let Some(data) = peek.data().thin() else {
+            let ptr = peek.data();
+            let Some(data) = ptr.thin() else {
                 continue;
             };
             let should_skip = unsafe { field.should_skip_serializing(data) };
+
+            if field.vtable.drop_serialize_into_box.is_some() {
+                self.to_drop.push((field, ptr));
+            }
 
             if should_skip {
                 continue;
@@ -208,6 +218,16 @@ impl<'mem, 'facet> Iterator for FieldsForSerializeIter<'mem, 'facet> {
                 }
             } else {
                 return Some((field, peek));
+            }
+        }
+    }
+}
+
+impl<'mem, 'facet> Drop for FieldsForSerializeIter<'mem, 'facet> {
+    fn drop(&mut self) {
+        while let Some((field, ptr)) = self.to_drop.pop() {
+            if let Some(drop_fn) = field.vtable.drop_serialize_into_box {
+                unsafe { drop_fn(ptr) };
             }
         }
     }

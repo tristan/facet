@@ -41,6 +41,7 @@ pub(crate) fn gen_field_from_pfield(
         .collect();
     let mut shape_of = quote! { shape_of };
     let mut asserts: Vec<TokenStream> = vec![];
+    let mut proxy_shape = None;
 
     // Process attributes other than rename rules, which are handled by PName
     for attr in &field.attrs.facet {
@@ -115,6 +116,24 @@ pub(crate) fn gen_field_from_pfield(
                     .skip_serializing_if(unsafe { ::core::mem::transmute((#predicate) as fn(&#field_ty) -> bool) })
                 });
             }
+            PFacetAttr::Proxy { ty } => {
+                vtable_items.push(quote! {
+                    .deserialize_from(|sptr, tptr| {
+                        let sval = unsafe { sptr.read::<#ty>() };
+                        let tval: #field_type = sval.try_into().unwrap();
+                        unsafe { tptr.put::<#field_type>(tval) };
+                    })
+                    .serialize_into(|sptr| {
+                        let sval = unsafe { sptr.get::<#field_type>() };
+                        let val: #ty = sval.try_into().unwrap();
+                        ::facet::GenericPtr::new(Box::leak(Box::new(val)))
+                    })
+                    .drop_serialize_into_box(|ptr| {
+                        let _: Box<#ty> = unsafe { Box::from_raw(ptr.as_byte_ptr() as *mut #ty) };
+                    })
+                });
+                proxy_shape = Some(ty);
+            }
             // These are handled by PName or are container-level, so ignore them for field attributes.
             PFacetAttr::RenameAll { .. } => {} // Explicitly ignore rename attributes here
             PFacetAttr::Transparent
@@ -154,6 +173,13 @@ pub(crate) fn gen_field_from_pfield(
         quote! { .flags(#flags) }
     };
 
+    let shape_of_fn = if let Some(proxy_shape) = proxy_shape {
+        // TODO: if the proxy_shape requires lifetimes this is probably gonna be problematic (and probably why the shape_of thing exists?)
+        quote! { &|s: &#struct_name #bgp_without_bounds| -> &#proxy_shape { todo!() } }
+    } else {
+        quote! { &|s: &#struct_name #bgp_without_bounds| &s.#field_name_raw }
+    };
+
     // Calculate the final offset, incorporating the base_offset if present
     let final_offset = match base_offset {
         Some(base) => {
@@ -171,7 +197,7 @@ pub(crate) fn gen_field_from_pfield(
                 // Use the effective name (after rename rules) for metadata
                 .name(#field_name_effective)
                 // Use the raw field name/index TokenStream for shape_of and offset_of
-                .shape(::facet::#shape_of(&|s: &#struct_name #bgp_without_bounds| &s.#field_name_raw))
+                .shape(::facet::#shape_of(#shape_of_fn))
                 .offset(#final_offset)
                 #maybe_flags
                 #maybe_attributes
@@ -282,6 +308,7 @@ pub(crate) fn process_struct(parsed: Struct) -> TokenStream {
                 | PFacetAttr::SkipSerializingIf { .. }
                 | PFacetAttr::Flatten
                 | PFacetAttr::Child
+                | PFacetAttr::Proxy { .. }
                 | PFacetAttr::TypeTag { .. } => {}
             }
         }

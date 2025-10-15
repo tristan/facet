@@ -12,6 +12,7 @@ mod option_building;
 mod option_leak;
 mod pointer;
 mod pointer_complex;
+mod proxy;
 mod put_vec_leak;
 mod struct_leak;
 mod tuples;

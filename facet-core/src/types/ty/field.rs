@@ -1,4 +1,4 @@
-use crate::PtrConst;
+use crate::{GenericPtr, PtrConst, PtrUninit};
 
 use super::{DefaultInPlaceFn, Shape};
 use bitflags::bitflags;
@@ -59,11 +59,19 @@ pub struct FieldVTable {
 
     /// Function to get the default value for this field
     pub default_fn: Option<DefaultInPlaceFn>,
+
+    pub deserialize_from: Option<DeserializeFromFn>,
+    pub serialize_into: Option<SerializeIntoFn>,
+    pub drop_serialize_into_box: Option<DropOwnedFieldDataFn>,
 }
 
 /// A function that, if present, determines whether field should be included in the serialization
 /// step.
 pub type SkipSerializingIfFn = for<'mem> unsafe fn(value: PtrConst<'mem>) -> bool;
+
+pub type DeserializeFromFn = for<'mem> unsafe fn(source: PtrConst<'mem>, target: PtrUninit<'mem>);
+pub type SerializeIntoFn = for<'mem> unsafe fn(source: GenericPtr<'mem>) -> GenericPtr<'mem>;
+pub type DropOwnedFieldDataFn = for<'mem> unsafe fn(source: GenericPtr<'mem>);
 
 impl Field {
     /// Returns the shape of the inner type
@@ -94,6 +102,9 @@ pub enum FieldAttribute {
 pub struct FieldVTableBuilder {
     skip_serializing_if: Option<SkipSerializingIfFn>,
     default_fn: Option<DefaultInPlaceFn>,
+    deserialize_from: Option<DeserializeFromFn>,
+    serialize_into: Option<SerializeIntoFn>,
+    drop_serialize_into_box: Option<DropOwnedFieldDataFn>,
 }
 
 impl FieldVTableBuilder {
@@ -103,6 +114,9 @@ impl FieldVTableBuilder {
         Self {
             skip_serializing_if: None,
             default_fn: None,
+            deserialize_from: None,
+            serialize_into: None,
+            drop_serialize_into_box: None,
         }
     }
 
@@ -118,11 +132,29 @@ impl FieldVTableBuilder {
         self
     }
 
+    pub const fn deserialize_from(mut self, func: DeserializeFromFn) -> Self {
+        self.deserialize_from = Some(func);
+        self
+    }
+
+    pub const fn serialize_into(mut self, func: SerializeIntoFn) -> Self {
+        self.serialize_into = Some(func);
+        self
+    }
+
+    pub const fn drop_serialize_into_box(mut self, func: DropOwnedFieldDataFn) -> Self {
+        self.drop_serialize_into_box = Some(func);
+        self
+    }
+
     /// Builds the FieldVTable
     pub const fn build(self) -> FieldVTable {
         FieldVTable {
             skip_serializing_if: self.skip_serializing_if,
             default_fn: self.default_fn,
+            deserialize_from: self.deserialize_from,
+            serialize_into: self.serialize_into,
+            drop_serialize_into_box: self.drop_serialize_into_box,
         }
     }
 }
@@ -160,6 +192,9 @@ impl FieldBuilder {
                 FieldVTable {
                     skip_serializing_if: None,
                     default_fn: None,
+                    deserialize_from: None,
+                    serialize_into: None,
+                    drop_serialize_into_box: None,
                 }
             },
         }
