@@ -48,6 +48,11 @@ impl Field {
         }
         false
     }
+
+    /// Returns true if the field has a proxy shape
+    pub fn has_proxy(&self) -> bool {
+        self.vtable.serialize_into.is_some()
+    }
 }
 
 /// Vtable for field-specific operations

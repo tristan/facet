@@ -40,10 +40,7 @@ impl<'mem, 'facet> PeekStruct<'mem, 'facet> {
             .fields
             .get(index)
             .map(|field| unsafe {
-                let mut field_data = self.value.data().field(field.offset);
-                if let Some(serialize_into) = field.vtable.serialize_into {
-                    field_data = serialize_into(field_data);
-                };
+                let field_data = self.value.data().field(field.offset);
                 Peek::unchecked_new(field_data, field.shape())
             })
             .ok_or(FieldError::IndexOutOfBounds {

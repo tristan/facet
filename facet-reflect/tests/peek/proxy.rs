@@ -1,5 +1,5 @@
 use facet::Facet;
-use facet_reflect::Peek;
+use facet_reflect::{HasFields, Peek, ProxyPeek};
 use facet_testhelpers::test;
 
 #[derive(Debug)]
@@ -21,7 +21,7 @@ impl From<&NotFacet> for String {
     }
 }
 
-#[derive(Facet)]
+#[derive(Facet, PartialEq)] // PartialEq only needed for the test
 #[facet(transparent)]
 struct NotFacetProxy(String);
 
@@ -67,9 +67,18 @@ fn peek_struct_with_proxy() {
         .field_by_name("thing")
         .expect("Should have a thing field");
 
-    // Test field values
-    let number_value = thing_field.get::<String>().unwrap();
-    assert_eq!(*number_value, "12345");
+    let mut tested = false;
+    for (field, peek) in peek_struct.fields_for_serialize() {
+        tested = true;
+        assert_eq!(thing_field, peek);
+        assert!(field.has_proxy());
+        let proxy = ProxyPeek::from_peek(peek, field).expect("should support proxy");
+        // Test field values
+        let peek = proxy.as_peek();
+        let proxy_value = peek.get::<String>().unwrap();
+        assert_eq!(*proxy_value, "12345");
+    }
+    assert!(tested);
 }
 
 #[test]
@@ -86,11 +95,20 @@ fn peek_struct_with_proxy_newtype() {
         .expect("Should be convertible to struct");
 
     // Test field access by name
-    let thing_field = peek_struct
+    let thing_peek = peek_struct
         .field_by_name("thing")
         .expect("Should have a thing field");
 
-    // Test field values
-    let proxy_value = thing_field.get::<NotFacetProxy>().unwrap();
-    assert_eq!(proxy_value.0, "12345");
+    let mut tested = false;
+    for (field, peek) in peek_struct.fields_for_serialize() {
+        tested = true;
+        assert_eq!(thing_peek, peek);
+        assert!(field.has_proxy());
+        let proxy = ProxyPeek::from_peek(peek, field).expect("should support proxy");
+        // Test field values
+        let peek = proxy.as_peek();
+        let proxy_value = peek.get::<NotFacetProxy>().unwrap();
+        assert_eq!(proxy_value.0, "12345");
+    }
+    assert!(tested);
 }
