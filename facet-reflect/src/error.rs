@@ -15,6 +15,7 @@ pub enum TrackerKind {
     List,
     Map,
     Option,
+    ProxyShape,
 }
 
 /// Errors that can occur when reflecting on types.

@@ -167,7 +167,8 @@ impl<'mem, 'facet> Iterator for FieldsForSerializeIter<'mem, 'facet> {
             };
             self.stack.push(fields);
 
-            let Some(data) = peek.data().thin() else {
+            let ptr = peek.data();
+            let Some(data) = ptr.thin() else {
                 continue;
             };
             let should_skip = unsafe { field.should_skip_serializing(data) };

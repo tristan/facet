@@ -126,7 +126,8 @@ mod heap_value;
 pub use heap_value::*;
 
 use facet_core::{
-    Def, EnumType, PtrMut, PtrUninit, Shape, SliceBuilderVTable, Type, UserType, Variant,
+    Def, EnumType, FieldVTable, PtrMut, PtrUninit, Shape, SliceBuilderVTable, Type, UserType,
+    Variant,
 };
 use iset::ISet;
 
@@ -305,6 +306,10 @@ enum Tracker {
         /// Whether we're currently building the inner value
         building_inner: bool,
     },
+
+    ProxyShape {
+        vtable: &'static FieldVTable,
+    },
 }
 
 impl Tracker {
@@ -320,6 +325,7 @@ impl Tracker {
             Tracker::List { .. } => TrackerKind::List,
             Tracker::Map { .. } => TrackerKind::Map,
             Tracker::Option { .. } => TrackerKind::Option,
+            Tracker::ProxyShape { .. } => TrackerKind::ProxyShape,
         }
     }
 }
@@ -516,6 +522,9 @@ impl Frame {
                     }
                 }
             }
+            Tracker::ProxyShape { .. } => {
+                todo!();
+            }
         }
 
         self.tracker = Tracker::Uninit;
@@ -655,6 +664,9 @@ impl Frame {
                 } else {
                     Ok(())
                 }
+            }
+            Tracker::ProxyShape { .. } => {
+                todo!();
             }
         }
     }

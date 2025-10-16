@@ -1,7 +1,7 @@
 use core::{cmp::Ordering, marker::PhantomData};
 use facet_core::{
-    Def, Facet, GenericPtr, PointerType, PtrMut, Shape, StructKind, Type, TypeNameOpts, UserType,
-    ValueVTable,
+    Def, DropInPlaceFn, DropOwnedFieldDataFn, Facet, Field, GenericPtr, PointerType, PtrMut, Shape,
+    StructKind, Type, TypeNameOpts, UserType, ValueVTable,
 };
 
 use crate::{PeekSet, ReflectError, ScalarType};
@@ -511,5 +511,55 @@ impl<'mem, 'facet> core::hash::Hash for Peek<'mem, 'facet> {
     fn hash<H: core::hash::Hasher>(&self, hasher: &mut H) {
         self.hash(hasher)
             .expect("Hashing is not supported for this shape");
+    }
+}
+
+/// a type similar to a Peek that owns the data needed for the proxy type
+///
+pub struct ProxyPeek<'mem, 'facet> {
+    pub(crate) drop_fn: Option<DropOwnedFieldDataFn>,
+    pub(crate) data: GenericPtr<'mem>,
+
+    /// Shape of the value
+    pub(crate) shape: &'static Shape,
+
+    invariant: PhantomData<fn(&'facet ()) -> &'facet ()>,
+}
+
+impl<'mem, 'facet> ProxyPeek<'mem, 'facet> {
+    pub fn from_peek(peek: Peek<'mem, 'facet>, field: Field) -> Result<Self, ReflectError> {
+        if let Some(serialize_into) = &field.vtable.serialize_into {
+            let data = unsafe { serialize_into(peek.data) };
+            Ok(ProxyPeek {
+                drop_fn: field.vtable.drop_serialize_into_box,
+                data,
+                shape: peek.shape,
+                invariant: PhantomData,
+            })
+        } else {
+            // TODO: new error?
+            Err(ReflectError::WasNotA {
+                expected: "proxy",
+                actual: peek.shape,
+            })
+        }
+    }
+
+    /// Get the proxy peek as a normal peek
+    /// SAFETY: must not use this after the ProxyPeek is dropped
+    pub fn as_peek(&self) -> Peek<'mem, 'facet> {
+        Peek {
+            data: self.data,
+            shape: self.shape,
+            invariant: PhantomData,
+        }
+    }
+}
+
+impl<'mem, 'facet> Drop for ProxyPeek<'mem, 'facet> {
+    fn drop(&mut self) {
+        if let Some(drop_fn) = self.drop_fn {
+            unsafe { drop_fn(self.data) }
+        }
     }
 }

@@ -52,6 +52,8 @@ keyword! {
     pub KFlatten = "flatten";
     /// The "child" keyword
     pub KChild = "child";
+    /// The "proxy" keyword
+    pub KProxy = "proxy";
     /// The "skip_serializing" keyword.
     pub KSkipSerializing = "skip_serializing";
     /// The "skip_serializing_if" keyword.
@@ -165,6 +167,8 @@ unsynn! {
         SkipSerializingIf(SkipSerializingIfInner),
         /// A type_tag attribute that specifies the identifying tag for self describing formats
         TypeTag(TypeTagInner),
+        /// Convert to this type using the TryFrom implementation of the given type
+        Proxy(ProxyInner),
         /// Any other attribute represented as a sequence of token trees.
         Arbitrary(VerbatimUntil<Comma>),
     }
@@ -179,6 +183,14 @@ unsynn! {
     pub struct ChildInner {
         /// The "child" keyword.
         pub _kw_child: KChild,
+    }
+
+    /// Inner value for #[facet(proxy(...))]
+    pub struct ProxyInner {
+        /// the "proxy" keyword.
+        pub _kw_proxy: KProxy,
+        /// "proxy(Type)"
+        pub inner: ParenthesisGroupContaining<VerbatimUntil<Comma>>,
     }
 
     /// Inner value for #[facet(skip_serializing)]

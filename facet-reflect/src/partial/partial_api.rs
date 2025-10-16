@@ -547,6 +547,28 @@ impl<'facet> Partial<'facet> {
                     }
                 }
             }
+            Tracker::ProxyShape { vtable } => {
+                crate::trace!(
+                    "Converting from {} to proxied type using deserialize_from",
+                    parent_frame.shape,
+                );
+                if let Some(deserialize_from) = vtable.deserialize_from {
+                    unsafe {
+                        let inner_value_ptr = popped_frame.data.assume_init().as_const();
+                        (deserialize_from)(inner_value_ptr, parent_frame.data);
+                    }
+                    popped_frame.tracker = Tracker::Uninit;
+                    popped_frame.dealloc();
+                    parent_frame.tracker = Tracker::Init;
+                    // we need to "pop" again to get the parent shape off the stack
+                    return self.end();
+                } else {
+                    return Err(ReflectError::OperationFailed {
+                        shape: parent_frame.shape,
+                        operation: "ProxyShape frame without deserialize_from definition",
+                    });
+                }
+            }
             _ => {}
         }
 
@@ -1182,7 +1204,16 @@ impl Partial<'_> {
             }
         };
 
-        self.frames.push(next_frame);
+        match &next_frame.tracker {
+            Tracker::ProxyShape { .. } => {
+                self.frames.push(next_frame);
+                self.begin_proxy()?;
+            }
+            _ => {
+                self.frames.push(next_frame);
+            }
+        }
+
         Ok(self)
     }
 
@@ -1339,6 +1370,9 @@ impl Partial<'_> {
             }
             Tracker::Option { .. } => {
                 unreachable!("can't steal fields from options")
+            }
+            Tracker::ProxyShape { .. } => {
+                todo!();
             }
         }
 
@@ -2057,6 +2091,48 @@ impl Partial<'_> {
             })
         }
     }
+
+    pub fn begin_proxy(&mut self) -> Result<&mut Self, ReflectError> {
+        self.require_active()?;
+
+        let current_frame = self.frames.last_mut().unwrap();
+        let shape = current_frame.shape;
+
+        match current_frame.tracker {
+            Tracker::ProxyShape { .. } => {
+                let source_layout =
+                    shape
+                        .layout
+                        .sized_layout()
+                        .map_err(|_| ReflectError::Unsized {
+                            shape,
+                            operation: "begin_proxy, getting source layout",
+                        })?;
+
+                let source_data = if source_layout.size() == 0 {
+                    // For ZST, use a non-null but unallocated pointer
+                    PtrUninit::new(core::ptr::NonNull::<u8>::dangling().as_ptr())
+                } else {
+                    // Allocate memory for the inner value
+                    let ptr = unsafe { alloc::alloc::alloc(source_layout) };
+                    if ptr.is_null() {
+                        alloc::alloc::handle_alloc_error(source_layout);
+                    }
+                    PtrUninit::new(ptr)
+                };
+
+                trace!("begin_proxy: Creating frame for proxy type {shape}");
+                self.frames
+                    .push(Frame::new(source_data, shape, FrameOwnership::Owned));
+
+                Ok(self)
+            }
+            _ => Err(ReflectError::OperationFailed {
+                shape,
+                operation: "type does not have a proxy",
+            }),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2297,6 +2373,12 @@ impl<'facet> Partial<'facet> {
                 // the struct field tracker said so!
                 next_frame.mark_as_init();
             }
+        }
+
+        if field.vtable.deserialize_from.is_some() {
+            next_frame.tracker = Tracker::ProxyShape {
+                vtable: field.vtable,
+            };
         }
 
         Ok(next_frame)
