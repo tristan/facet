@@ -642,6 +642,49 @@ fn test_transparent_newtype() {
     }
 }
 
+#[test]
+fn test_transparent_newtype_const_generic() {
+    #[derive(Facet)]
+    #[facet(transparent)]
+    struct FromStrRadix<const RADIX: u32>(String);
+
+    impl<const RADIX: u32> TryFrom<FromStrRadix<RADIX>> for u64 {
+        type Error = std::num::ParseIntError;
+
+        fn try_from(value: FromStrRadix<RADIX>) -> Result<Self, Self::Error> {
+            u64::from_str_radix(&value.0, RADIX)
+        }
+    }
+
+    impl From<&u64> for FromStrRadix<16> {
+        fn from(value: &u64) -> Self {
+            Self(format!("{value:x}"))
+        }
+    }
+
+    impl From<&u64> for FromStrRadix<10> {
+        fn from(value: &u64) -> Self {
+            Self(format!("{value}"))
+        }
+    }
+
+    impl From<&u64> for FromStrRadix<8> {
+        fn from(value: &u64) -> Self {
+            Self(format!("{value:o}"))
+        }
+    }
+
+    #[derive(facet::Facet, Debug)]
+    pub struct Main {
+        #[facet(proxy = FromStrRadix<16>)]
+        hex: u64,
+        #[facet(proxy = FromStrRadix<8>)]
+        oct: u64,
+        #[facet(proxy = FromStrRadix<10>)]
+        dec: u64,
+    }
+}
+
 // ============================================================================
 // Enum representation attribute tests
 // ============================================================================

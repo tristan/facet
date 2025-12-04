@@ -341,6 +341,36 @@ pub(crate) fn process_struct(parsed: Struct) -> TokenStream {
                 // Transparent struct with one field
                 let inner_field_type = &inner_field.ty;
                 let bgp_without_bounds = ps.container.bgp.display_without_bounds();
+                let mut try_borrow_inner_params =
+                    BoundedGenericParams { params: vec![] }.with(BoundedGenericParam {
+                        param: GenericParamName::Lifetime(LifetimeName(quote::format_ident!(
+                            "src"
+                        ))),
+                        bounds: None,
+                    });
+                let mut try_into_inner_params =
+                    try_borrow_inner_params.clone().with(BoundedGenericParam {
+                        param: GenericParamName::Lifetime(LifetimeName(quote::format_ident!(
+                            "dst"
+                        ))),
+                        bounds: None,
+                    });
+                let mut try_into_turbo_fish = BoundedGenericParams { params: vec![] };
+                if !ps.container.bgp.params.is_empty() {
+                    for param in &ps.container.bgp.params {
+                        try_into_turbo_fish = try_into_turbo_fish.with(param.clone());
+                        try_into_inner_params = try_into_inner_params.with(param.clone());
+                        try_borrow_inner_params = try_borrow_inner_params.with(param.clone());
+                    }
+                }
+                let try_into_inner_params = try_into_inner_params.display_with_bounds();
+                let try_borrow_inner_params = try_borrow_inner_params.display_with_bounds();
+                let try_into_turbo_fish = if try_into_turbo_fish.params.is_empty() {
+                    quote! {}
+                } else {
+                    let bounded = try_into_turbo_fish.display_without_bounds();
+                    quote! { :: #bounded }
+                };
 
                 quote! {
                     // Define the try_from function for the value vtable
@@ -376,7 +406,7 @@ pub(crate) fn process_struct(parsed: Struct) -> TokenStream {
                     }
 
                     // Define the try_into_inner function for the value vtable
-                    unsafe fn try_into_inner<'src, 'dst>(
+                    unsafe fn try_into_inner #try_into_inner_params (
                         src_ptr: #facet_crate::PtrMut<'src>,
                         dst: #facet_crate::PtrUninit<'dst>
                     ) -> Result<#facet_crate::PtrMut<'dst>, #facet_crate::TryIntoInnerError> {
@@ -385,7 +415,7 @@ pub(crate) fn process_struct(parsed: Struct) -> TokenStream {
                     }
 
                     // Define the try_borrow_inner function for the value vtable
-                    unsafe fn try_borrow_inner<'src>(
+                    unsafe fn try_borrow_inner #try_borrow_inner_params (
                         src_ptr: #facet_crate::PtrConst<'src>
                     ) -> Result<#facet_crate::PtrConst<'src>, #facet_crate::TryBorrowInnerError> {
                         let wrapper = unsafe { src_ptr.get::<#struct_name_ident #bgp_without_bounds>() };
@@ -395,8 +425,8 @@ pub(crate) fn process_struct(parsed: Struct) -> TokenStream {
 
                     {
                         vtable.try_from = Some(try_from);
-                        vtable.try_into_inner = Some(try_into_inner);
-                        vtable.try_borrow_inner = Some(try_borrow_inner);
+                        vtable.try_into_inner = Some(try_into_inner #try_into_turbo_fish);
+                        vtable.try_borrow_inner = Some(try_borrow_inner #try_into_turbo_fish);
                     }
                 }
             } else {
